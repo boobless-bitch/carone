@@ -2,437 +2,723 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <!-- Prevents zoom and scrolling on mobile devices -->
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Babylon.js Drift Arena - Shared Screen</title>
-    
-    <!-- Babylon.js core and Physics engines via CDN -->
-    <script src="https://cdn.babylonjs.com/babylon.js"></script>
-    <script src="https://cdn.babylonjs.com/cannon.js"></script>
-
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>Drift Duels: Elemental Chase | 2-Player Offline Game</title>
     <style>
-        body, html {
-            margin: 0; padding: 0; width: 100%; height: 100%;
-            overflow: hidden; background-color: #111; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            touch-action: none; user-select: none; -webkit-user-select: none;
+        body {
+            margin: 0;
+            overflow: hidden;
+            font-family: 'Segoe UI', 'Poppins', 'Orbitron', monospace;
+            touch-action: none; /* prevent touch zoom */
         }
-        #renderCanvas {
-            width: 100%; height: 100%; display: block;
+        /* UI Overlay - split screen style for two players facing each other */
+        .game-ui {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 10;
         }
-        /* UI Overlays */
-        .ui-container {
-            position: absolute; width: 100%; height: 100%; top: 0; left: 0; pointer-events: none;
+        /* Both players containers */
+        .player-panel {
+            position: absolute;
+            width: 100%;
+            pointer-events: auto;
+            backdrop-filter: blur(8px);
+            background: rgba(0,0,0,0.55);
+            border-radius: 20px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+            padding: 12px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            box-sizing: border-box;
+            font-weight: bold;
+            color: white;
+            text-shadow: 1px 1px 0 black;
         }
-        .player-ui {
-            position: absolute; width: 100%; height: 150px; display: flex; 
-            justify-content: space-between; align-items: center; padding: 10px 20px; box-sizing: border-box;
-            background: linear-gradient(rgba(0,0,0,0.8), transparent);
+        /* Player 1: top half (facing camera) */
+        .player1-panel {
+            top: 15px;
+            left: 10px;
+            right: 10px;
+            width: auto;
+            background: linear-gradient(135deg, #1e2a3a, #0f1722);
+            border-bottom: 3px solid #ff4757;
         }
-        #p2-ui {
-            top: 0; transform: rotate(180deg); /* Faces the player at the top of the phone */
+        /* Player 2: bottom half (facing home button, rotated UI?) but we keep normal text */
+        .player2-panel {
+            bottom: 15px;
+            left: 10px;
+            right: 10px;
+            width: auto;
+            background: linear-gradient(135deg, #1e2a3a, #0f1722);
+            border-top: 3px solid #1e90ff;
         }
-        #p1-ui {
-            bottom: 0; background: linear-gradient(transparent, rgba(0,0,0,0.8));
+        .score-area {
+            display: flex;
+            gap: 20px;
+            align-items: baseline;
+            font-size: 1.5rem;
         }
-        /* Buttons */
+        .score {
+            font-size: 2rem;
+            font-weight: bold;
+            background: gold;
+            color: #1f1f2e;
+            padding: 0 12px;
+            border-radius: 30px;
+        }
+        .element-badge {
+            background: #2c3e66;
+            padding: 5px 12px;
+            border-radius: 40px;
+            font-size: 1rem;
+            letter-spacing: 1px;
+        }
+        .box-slot {
+            background: #2c2c3a;
+            border-radius: 16px;
+            padding: 5px 12px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            cursor: pointer;
+            transition: 0.2s;
+            border: 1px solid #ffaa44;
+            pointer-events: auto;
+        }
+        .box-slot:active {
+            transform: scale(0.96);
+            background: #4a3a2a;
+        }
+        .box-icon {
+            font-size: 1.6rem;
+        }
+        .empty-box {
+            opacity: 0.5;
+            filter: grayscale(0.5);
+        }
+        .controls {
+            display: flex;
+            gap: 15px;
+        }
         .ctrl-btn {
-            pointer-events: auto; width: 70px; height: 70px; background: rgba(255, 255, 255, 0.2);
-            border: 2px solid white; border-radius: 50%; display: flex; justify-content: center; align-items: center;
-            font-size: 24px; font-weight: bold; color: white; cursor: pointer; backdrop-filter: blur(4px);
+            background: rgba(0,0,0,0.7);
+            border: 2px solid white;
+            border-radius: 60px;
+            padding: 10px 20px;
+            font-size: 1.8rem;
+            font-weight: bold;
+            color: white;
+            cursor: pointer;
+            pointer-events: auto;
+            transition: 0.05s linear;
+            backdrop-filter: blur(4px);
+            user-select: none;
+            width: 70px;
+            text-align: center;
         }
-        .ctrl-btn:active { background: rgba(255, 255, 255, 0.5); }
-        
-        .center-info {
-            display: flex; flex-direction: column; align-items: center; color: white; text-align: center;
+        .ctrl-btn:active {
+            background: #ffaa33;
+            transform: scale(0.92);
         }
-        .score-text { font-size: 18px; font-weight: bold; margin-bottom: 5px;}
-        .element-text { font-size: 14px; padding: 3px 8px; border-radius: 12px; font-weight: bold; }
-        
-        .inv-btn {
-            pointer-events: auto; margin-top: 5px; padding: 8px 15px; border: 2px solid #fff;
-            background: #333; color: #aaa; border-radius: 8px; font-weight: bold; cursor: pointer;
+        .round-info {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: black;
+            color: lime;
+            padding: 12px 24px;
+            border-radius: 60px;
+            font-size: 1.4rem;
+            font-weight: bold;
+            letter-spacing: 2px;
+            pointer-events: none;
+            z-index: 30;
+            font-family: monospace;
+            white-space: nowrap;
+            border: 2px solid cyan;
+            background: #000000aa;
+            backdrop-filter: blur(8px);
         }
-        .inv-btn.active {
-            background: #e74c3c; color: white; box-shadow: 0 0 10px #e74c3c;
+        .timer {
+            font-size: 1.7rem;
+            font-weight: bold;
+            background: #000000aa;
+            padding: 5px 12px;
+            border-radius: 40px;
         }
-
-        /* Match Info Center */
-        #match-info {
-            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
-            color: rgba(255,255,255,0.5); font-size: 24px; font-weight: bold; text-align: center; pointer-events: none;
+        .perk-status {
+            font-size: 0.7rem;
+            background: #222;
+            border-radius: 20px;
+            padding: 2px 6px;
+        }
+        @media (max-width: 700px) {
+            .ctrl-btn { width: 55px; font-size: 1.4rem; padding: 8px 12px; }
+            .score { font-size: 1.5rem; }
+            .player-panel { padding: 8px; }
         }
     </style>
 </head>
-<body oncontextmenu="return false;">
-
-    <canvas id="renderCanvas"></canvas>
-
-    <div class="ui-container">
-        <!-- Player 2 UI (Top, inverted for person facing home button) -->
-        <div id="p2-ui" class="player-ui">
-            <div class="ctrl-btn" onpointerdown="setInput(p2, -1)" onpointerup="setInput(p2, 0)" onpointerout="setInput(p2, 0)">&lt;</div>
-            <div class="center-info">
-                <div class="score-text" id="p2-score">Score: 0</div>
-                <div class="element-text" id="p2-element">Water</div>
-                <div class="inv-btn" id="p2-inv" onclick="useInventory(p2, p1)">Empty Box</div>
+<body>
+    <div class="game-ui">
+        <!-- Player 1 (top, facing camera) -->
+        <div class="player-panel player1-panel">
+            <div class="score-area">
+                <span>🏁 P1</span>
+                <span class="score" id="scoreP1">0</span>
+                <div class="element-badge" id="p1Element">🔥 FIRE</div>
             </div>
-            <div class="ctrl-btn" onpointerdown="setInput(p2, 1)" onpointerup="setInput(p2, 0)" onpointerout="setInput(p2, 0)">&gt;</div>
-        </div>
-
-        <!-- Player 1 UI (Bottom) -->
-        <div id="p1-ui" class="player-ui">
-            <div class="ctrl-btn" onpointerdown="setInput(p1, -1)" onpointerup="setInput(p1, 0)" onpointerout="setInput(p1, 0)">&lt;</div>
-            <div class="center-info">
-                <div class="score-text" id="p1-score">Score: 0</div>
-                <div class="element-text" id="p1-element">Fire</div>
-                <div class="inv-btn" id="p1-inv" onclick="useInventory(p1, p2)">Empty Box</div>
+            <div class="box-slot" id="p1BoxSlot">
+                <span class="box-icon">📦</span>
+                <span id="p1BoxItem">---</span>
             </div>
-            <div class="ctrl-btn" onpointerdown="setInput(p1, 1)" onpointerup="setInput(p1, 0)" onpointerout="setInput(p1, 0)">&gt;</div>
+            <div class="controls" id="controlsP1">
+                <div class="ctrl-btn" data-player="p1" data-dir="left">◀</div>
+                <div class="ctrl-btn" data-player="p1" data-dir="right">▶</div>
+            </div>
         </div>
 
-        <!-- Match Timer / Round -->
-        <div id="match-info">
-            <div id="round-display">Round 1 / 4</div>
-            <div id="time-display">2:00</div>
+        <!-- Player 2 (bottom, facing home button) -->
+        <div class="player-panel player2-panel">
+            <div class="controls" id="controlsP2">
+                <div class="ctrl-btn" data-player="p2" data-dir="left">◀</div>
+                <div class="ctrl-btn" data-player="p2" data-dir="right">▶</div>
+            </div>
+            <div class="box-slot" id="p2BoxSlot">
+                <span class="box-icon">📦</span>
+                <span id="p2BoxItem">---</span>
+            </div>
+            <div class="score-area">
+                <div class="element-badge" id="p2Element">💧 WATER</div>
+                <span class="score" id="scoreP2">0</span>
+                <span> P2 🏁</span>
+            </div>
         </div>
+        <div class="round-info" id="roundInfo">ROUND 1 / 3</div>
+        <div style="position: absolute; bottom: 20%; left: 20px; background:#00000099; border-radius: 20px; padding: 4px 12px; pointer-events: none; color: white; font-size:12px;">⚡ Drift chaos | Collect YOUR element ➕ | Opponent's element ➡️ BOX (tap to curse)</div>
     </div>
 
-<script>
-    const canvas = document.getElementById("renderCanvas");
-    const engine = new BABYLON.Engine(canvas, true);
+    <!-- Babylon.js CDN -->
+    <script src="https://cdn.babylonjs.com/babylon.js"></script>
+    <script src="https://cdn.babylonjs.com/loaders/babylonjs.loaders.min.js"></script>
+    <script src="https://cdn.babylonjs.com/gui/babylon.gui.min.js"></script>
 
-    // Elements Definition
-    const ELEMENTS = { FIRE: 0, WATER: 1, EARTH: 2, WIND: 3 };
-    const ELEMENT_DATA = [
-        { name: "Fire", color: new BABYLON.Color3(1, 0.2, 0.2), hex: "#ff3333" },
-        { name: "Water", color: new BABYLON.Color3(0.2, 0.5, 1), hex: "#3388ff" },
-        { name: "Earth", color: new BABYLON.Color3(0.2, 0.8, 0.2), hex: "#33cc33" },
-        { name: "Wind", color: new BABYLON.Color3(1, 0.9, 0.2), hex: "#ffeb3b" }
-    ];
+    <script>
+        // --------------------------------------------------------------
+        // GAME SETUP - 2P OFFLINE DRIFT + ITEMS (ELEMENTS)
+        // --------------------------------------------------------------
+        const canvas = document.createElement("canvas");
+        canvas.style.width = "100%";
+        canvas.style.height = "100%";
+        canvas.id = "gameCanvas";
+        document.body.appendChild(canvas);
 
-    // Player State Objects
-    let p1 = { id: 1, mesh: null, element: ELEMENTS.FIRE, score: 0, input: 0, inv: null, speedMult: 1, controlMult: 1, timer: 0 };
-    let p2 = { id: 2, mesh: null, element: ELEMENTS.WATER, score: 0, input: 0, inv: null, speedMult: 1, controlMult: 1, timer: 0 };
-
-    // Game variables
-    let activeItems = [];
-    let itemSpawnTimer = 0;
-    let roundTimer = 120; // 2 minutes
-    let currentRound = 1;
-    let boundX = 20;
-    let boundZ = 35;
-    
-    // Physics / Car handling variables
-    const BASE_SPEED = 15;
-    const TURN_SPEED = 3.5;
-    const DRIFT_FACTOR = 0.04; // Lower = more slippery/drifty
-
-    function setInput(player, val) { player.input = val; }
-
-    const createScene = function () {
+        const engine = new BABYLON.Engine(canvas, true);
         const scene = new BABYLON.Scene(engine);
-        scene.clearColor = new BABYLON.Color4(0.05, 0.05, 0.05, 1);
-
-        // Enable Cannon.js Physics
-        scene.enablePhysics(new BABYLON.Vector3(0, 0, 0), new BABYLON.CannonJSPlugin());
-
-        // Top-Down Orthographic Camera Setup
-        const camera = new BABYLON.FreeCamera("camera", new BABYLON.Vector3(0, 50, 0), scene);
-        camera.setTarget(BABYLON.Vector3.Zero());
-        camera.mode = BABYLON.Camera.ORTHOGRAPHIC_CAMERA;
+        scene.clearColor = new BABYLON.Color3(0.05, 0.1, 0.2);
+        
+        // Camera: top-down view to see whole track
+        const camera = new BABYLON.ArcRotateCamera("cam", -Math.PI/2, Math.PI/2.8, 22, BABYLON.Vector3.Zero(), scene);
+        camera.setPosition(new BABYLON.Vector3(0, 18, -5));
+        camera.attachControl(canvas, false);
+        camera.lowerRadiusLimit = 15;
+        camera.upperRadiusLimit = 28;
         
         // Lights
-        new BABYLON.HemisphericLight("light", new BABYLON.Vector3(0, 1, 0), scene);
-        const dirLight = new BABYLON.DirectionalLight("dirLight", new BABYLON.Vector3(-1, -2, -1), scene);
-        dirLight.intensity = 0.7;
-
-        // Ground (Dark grid)
-        const ground = BABYLON.MeshBuilder.CreateGround("ground", {width: 100, height: 100}, scene);
-        const gridMat = new BABYLON.StandardMaterial("gridMat", scene);
-        gridMat.diffuseColor = new BABYLON.Color3(0.1, 0.1, 0.1);
-        ground.material = gridMat;
-        ground.physicsImpostor = new BABYLON.PhysicsImpostor(ground, BABYLON.PhysicsImpostor.BoxImpostor, { mass: 0, friction: 0 }, scene);
-
-        // Helper to create cars
-        function createCar(playerObj, startZ, colorHex) {
-            const car = BABYLON.MeshBuilder.CreateBox("car" + playerObj.id, {width: 2, height: 1, depth: 4}, scene);
-            car.position.y = 0.5;
-            car.position.z = startZ;
-            if (startZ > 0) car.rotation.y = Math.PI; // Face center
-
-            const mat = new BABYLON.StandardMaterial("carMat", scene);
-            mat.diffuseColor = BABYLON.Color3.FromHexString(colorHex);
-            car.material = mat;
-
-            // Physics Body setup
-            car.physicsImpostor = new BABYLON.PhysicsImpostor(car, BABYLON.PhysicsImpostor.BoxImpostor, { mass: 1, friction: 0, restitution: 0.5 }, scene);
-            
-            // Lock rotation on X and Z so it doesn't flip over
-            car.physicsImpostor.physicsBody.angularDamping = 1; 
-
-            playerObj.mesh = car;
+        const hemiLight = new BABYLON.HemisphericLight("hemi", new BABYLON.Vector3(0, 1, 0), scene);
+        hemiLight.intensity = 0.7;
+        const dirLight = new BABYLON.DirectionalLight("dir", new BABYLON.Vector3(0.5, -1, 0.2), scene);
+        dirLight.intensity = 0.9;
+        
+        // Ground / Track (360° loop style, infinite wrap on X)
+        const trackMat = new BABYLON.StandardMaterial("trackMat", scene);
+        trackMat.diffuseTexture = new BABYLON.Texture("https://assets.babylonjs.com/textures/checker.png", scene);
+        trackMat.diffuseTexture.uScale = 6;
+        trackMat.diffuseTexture.vScale = 4;
+        trackMat.specularColor = new BABYLON.Color3(0.1,0.1,0.1);
+        const ground = BABYLON.MeshBuilder.CreateGround("track", {width: 24, height: 18}, scene);
+        ground.material = trackMat;
+        ground.position.y = -0.2;
+        
+        // decorative lines
+        const lineMat = new BABYLON.StandardMaterial("line", scene);
+        lineMat.diffuseColor = new BABYLON.Color3(0.9,0.7,0.2);
+        for(let i=-10; i<=10; i+=2){
+            const line = BABYLON.MeshBuilder.CreateCylinder("line", {diameter:0.1, height:0.05}, scene);
+            line.position.set(i, -0.1, -6);
+            line.material = lineMat;
         }
-
-        createCar(p1, -20, "#ffffff");
-        createCar(p2, 20, "#aaaaaa");
-
-        // Game Loop
-        scene.onBeforeRenderObservable.add(() => {
-            const dt = engine.getDeltaTime() / 1000;
-            
-            updateCameraBounds(camera);
-            handlePhysicsAndMovement(p1, dt);
-            handlePhysicsAndMovement(p2, dt);
-            handleItemSpawns(dt, scene);
-            updateGameTimers(dt);
-        });
-
-        return scene;
-    };
-
-    const scene = createScene();
-
-    // Responsive Orthographic Camera
-    function updateCameraBounds(camera) {
-        let ratio = canvas.height / canvas.width;
-        boundX = 25; 
-        boundZ = boundX * ratio;
-        camera.orthoLeft = -boundX;
-        camera.orthoRight = boundX;
-        camera.orthoTop = boundZ;
-        camera.orthoBottom = -boundZ;
-    }
-
-    // Handles Physics, Drifting, and Screen Wrapping
-    function handlePhysicsAndMovement(player, dt) {
-        // Buff timers
-        if (player.timer > 0) {
-            player.timer -= dt;
-            if (player.timer <= 0) {
-                player.speedMult = 1;
-                player.controlMult = 1;
-            }
-        }
-
-        const mesh = player.mesh;
-        const imp = mesh.physicsImpostor;
-
-        // Steering (Left / Right)
-        mesh.rotation.y += player.input * TURN_SPEED * dt;
-
-        // Forward Direction Vector
-        let forward = new BABYLON.Vector3(Math.sin(mesh.rotation.y), 0, Math.cos(mesh.rotation.y));
         
-        // Target Velocity based on facing direction
-        let targetVelocity = forward.scale(BASE_SPEED * player.speedMult);
+        // World boundaries (wrap-around X: -11.5 to 11.5, Z no strict but we keep track range)
+        const WORLD_MIN_X = -11;
+        const WORLD_MAX_X = 11;
         
-        // Current Velocity
-        let currentVelocity = imp.getLinearVelocity();
-        
-        // Drifting formula: Lerp towards target velocity based on grip/control
-        let grip = DRIFT_FACTOR * player.controlMult;
-        let newVel = BABYLON.Vector3.Lerp(currentVelocity, targetVelocity, grip);
-        newVel.y = 0; // Stick to ground
-        
-        imp.setLinearVelocity(newVel);
-        imp.setAngularVelocity(BABYLON.Vector3.Zero()); // Prevent physics collisions from spinning the car out of control
-
-        // Infinite Wrap-Around Bounds
-        let pos = mesh.position;
-        let wrapped = false;
-        
-        if (pos.x > boundX) { pos.x = -boundX; wrapped = true; }
-        else if (pos.x < -boundX) { pos.x = boundX; wrapped = true; }
-        
-        if (pos.z > boundZ) { pos.z = -boundZ; wrapped = true; }
-        else if (pos.z < -boundZ) { pos.z = boundZ; wrapped = true; }
-
-        if (wrapped) {
-            imp.forceUpdate(); // Syncs Babylon position hack back to Cannon.js physics body
-        }
-    }
-
-    // Item System Logic
-    function handleItemSpawns(dt, scene) {
-        itemSpawnTimer -= dt;
-        
-        // Spawn every 2.5 seconds
-        if (itemSpawnTimer <= 0) {
-            spawnItem(scene);
-            itemSpawnTimer = 2.5; 
-        }
-
-        // Update active items
-        for (let i = activeItems.length - 1; i >= 0; i--) {
-            let item = activeItems[i];
-            item.age += dt;
-            
-            // Items live for exactly 5 seconds
-            if (item.age >= 5.0) {
-                item.mesh.dispose();
-                activeItems.splice(i, 1);
-                continue;
-            }
-
-            // Simple distance-based collision detection for items
-            checkItemCollision(p1, item, i, scene);
-            if (activeItems[i] === item) { // Check if P1 didn't already consume it
-                checkItemCollision(p2, item, i, scene);
+        // Player class
+        class DriftCar {
+            constructor(name, color, startX, startZ, scene) {
+                this.scene = scene;
+                this.mesh = BABYLON.MeshBuilder.CreateBox(name+"_body", {width:0.9, height:0.4, depth:1.6}, scene);
+                this.mesh.position.set(startX, 0.2, startZ);
+                const mat = new BABYLON.StandardMaterial(name+"_mat", scene);
+                mat.diffuseColor = new BABYLON.Color3(color.r, color.g, color.b);
+                mat.specularColor = new BABYLON.Color3(0.2,0.2,0.2);
+                this.mesh.material = mat;
+                // wheels
+                const wheelMat = new BABYLON.StandardMaterial("wheel", scene);
+                wheelMat.diffuseColor = new BABYLON.Color3(0.1,0.1,0.1);
+                const wheelGeo = BABYLON.MeshBuilder.CreateCylinder("wheel", {diameter:0.4, height:0.2}, scene);
+                this.wheels = [];
+                for(let xOff of [-0.5,0.5]){
+                    for(let zOff of [-0.7,0.7]){
+                        let w = wheelGeo.clone(name+"_wheel");
+                        w.position.set(xOff, 0.1, zOff);
+                        w.parent = this.mesh;
+                        w.material = wheelMat;
+                        this.wheels.push(w);
+                    }
+                }
+                this.angle = 0; // radians
+                this.speed = 7.2;  // constant forward drift
+                this.controlMult = 1.0;  // steering sensitivity
+                this.speedMult = 1.0;
+                this.perkTimer = 0;
+                this.velocity = new BABYLON.Vector3(0,0,0);
+                this.steerInput = 0; // -1 left, 1 right
             }
             
-            // Slight hover animation
-            item.mesh.position.y = 0.5 + Math.sin(Date.now() / 200) * 0.2;
-        }
-    }
-
-    function spawnItem(scene) {
-        // Random properties
-        const el = Math.floor(Math.random() * 4); // 0-3 Element
-        const perk = Math.floor(Math.random() * 3); // 0: Speed, 1: Control, 2: Extra
-
-        const itemMesh = BABYLON.MeshBuilder.CreateSphere("item", {diameter: 2}, scene);
-        // Random position within safe bounds
-        itemMesh.position.x = (Math.random() - 0.5) * (boundX * 1.5);
-        itemMesh.position.z = (Math.random() - 0.5) * (boundZ * 1.5);
-        itemMesh.position.y = 0.5;
-
-        const mat = new BABYLON.StandardMaterial("itemMat", scene);
-        mat.emissiveColor = ELEMENT_DATA[el].color;
-        itemMesh.material = mat;
-
-        activeItems.push({ mesh: itemMesh, age: 0, element: el, perk: perk });
-    }
-
-    function checkItemCollision(player, item, index, scene) {
-        let dist = BABYLON.Vector3.Distance(player.mesh.position, item.mesh.position);
-        if (dist < 2.5) {
-            let opp = player.id === 1 ? p2 : p1;
-
-            if (item.element === player.element) {
-                // 1. Collected OWN element -> Point + Perk
-                player.score++;
-                applyPerk(player, item.perk, false, scene);
-            } 
-            else if (item.element === opp.element) {
-                // 2. Collected OPPONENT element -> Store in Inventory
-                player.inv = item.perk;
-            } 
-            else {
-                // 3. Collected OTHER element -> Lose point
-                player.score = Math.max(0, player.score - 1);
-            }
-
-            // Cleanup item
-            item.mesh.dispose();
-            activeItems.splice(index, 1);
-            updateUI();
-        }
-    }
-
-    // Applies buffs/debuffs
-    function applyPerk(targetPlayer, perkType, isDebuff, scene) {
-        if (perkType === 0) { // Speed
-            targetPlayer.speedMult = isDebuff ? 0.4 : 1.6;
-            targetPlayer.timer = 4.0;
-        } else if (perkType === 1) { // Control
-            targetPlayer.controlMult = isDebuff ? 0.2 : 2.5; // 0.2 = extreme drift
-            targetPlayer.timer = 4.0;
-        } else if (perkType === 2) { // Extra / Random
-            if (isDebuff) {
-                // Random debuff effect: Clear their inventory and drop a point
-                targetPlayer.inv = null;
-                targetPlayer.score = Math.max(0, targetPlayer.score - 1);
-            } else {
-                // Extra item popup
-                spawnItem(scene);
-            }
-        }
-    }
-
-    // Triggered by HTML UI buttons
-    function useInventory(sender, target) {
-        if (sender.inv !== null) {
-            applyPerk(target, sender.inv, true, scene);
-            sender.inv = null;
-            updateUI();
-        }
-    }
-
-    // Game Timer and Round Logic
-    function updateGameTimers(dt) {
-        if (currentRound > 4) return; // Game over state
-
-        roundTimer -= dt;
-        
-        let mins = Math.floor(roundTimer / 60);
-        let secs = Math.floor(roundTimer % 60).toString().padStart(2, '0');
-        document.getElementById("time-display").innerText = `${mins}:${secs}`;
-
-        if (roundTimer <= 0) {
-            currentRound++;
-            if (currentRound > 4) {
-                document.getElementById("round-display").innerText = "GAME OVER";
-                document.getElementById("time-display").innerText = p1.score > p2.score ? "P1 Wins!" : (p2.score > p1.score ? "P2 Wins!" : "Tie!");
-            } else {
-                roundTimer = 120;
-                document.getElementById("round-display").innerText = `Round ${currentRound} / 4`;
+            update(deltaTime, driftNoise = true) {
+                if(deltaTime > 0.03) deltaTime = 0.03;
+                // Steering effect with imperfect drift & controlMult
+                let steer = this.steerInput * 2.2 * this.controlMult * deltaTime;
+                // add drift randomness (makes it "not perfect")
+                if(driftNoise) steer += (Math.random() - 0.5) * 0.9 * deltaTime;
+                this.angle += steer;
+                // Normalize angle
+                if(this.angle > Math.PI*2) this.angle -= Math.PI*2;
+                if(this.angle < 0) this.angle += Math.PI*2;
                 
-                // Swap Elements logic
-                if (currentRound === 2) { p1.element = ELEMENTS.EARTH; p2.element = ELEMENTS.WIND; }
-                if (currentRound === 3) { p1.element = ELEMENTS.WATER; p2.element = ELEMENTS.FIRE; }
-                if (currentRound === 4) { p1.element = ELEMENTS.WIND; p2.element = ELEMENTS.EARTH; }
+                let currentSpeed = this.speed * this.speedMult;
+                let forward = new BABYLON.Vector3(Math.sin(this.angle), 0, Math.cos(this.angle));
+                let move = forward.scale(currentSpeed * deltaTime);
+                this.mesh.position.x += move.x;
+                this.mesh.position.z += move.z;
+                // WRAP-AROUND X (no boundaries)
+                if(this.mesh.position.x < WORLD_MIN_X) this.mesh.position.x = WORLD_MAX_X;
+                if(this.mesh.position.x > WORLD_MAX_X) this.mesh.position.x = WORLD_MIN_X;
+                // soft Z clamping to keep visible (track area -7 to 7)
+                if(this.mesh.position.z > 6) this.mesh.position.z = 6;
+                if(this.mesh.position.z < -6) this.mesh.position.z = -6;
+                // Rotate mesh
+                this.mesh.rotation.y = this.angle;
                 
+                // handle perks duration
+                if(this.perkTimer > 0){
+                    this.perkTimer -= deltaTime;
+                    if(this.perkTimer <= 0){
+                        this.speedMult = 1.0;
+                        this.controlMult = 1.0;
+                    }
+                }
+            }
+            
+            applyPerk(type, duration = 4.0){
+                this.perkTimer = duration;
+                if(type === "speedUp"){
+                    this.speedMult = 1.45;
+                } else if(type === "speedDown"){
+                    this.speedMult = 0.65;
+                } else if(type === "moreControl"){
+                    this.controlMult = 1.8;
+                } else if(type === "looseControl"){
+                    this.controlMult = 0.45;
+                }
+            }
+            
+            resetPerk(){
+                this.speedMult = 1.0;
+                this.controlMult = 1.0;
+                this.perkTimer = 0;
+            }
+        }
+        
+        // Item definition
+        class Collectible {
+            constructor(pos, category, subType, durationSec, scene){
+                this.mesh = BABYLON.MeshBuilder.CreateSphere("item", {diameter:0.65}, scene);
+                this.mesh.position.copyFrom(pos);
+                this.category = category; // "fire","water","earth","wind"
+                this.subType = subType; // "speed", "control", "extra"
+                this.life = durationSec; // seconds until vanish
+                // color coding
+                let col;
+                if(category === "fire") col = new BABYLON.Color3(1,0.3,0.1);
+                else if(category === "water") col = new BABYLON.Color3(0.1,0.5,1);
+                else if(category === "earth") col = new BABYLON.Color3(0.5,0.35,0.15);
+                else col = new BABYLON.Color3(0.7,0.9,0.9);
+                const mat = new BABYLON.StandardMaterial("itemMat", scene);
+                mat.diffuseColor = col;
+                mat.emissiveColor = col.scale(0.5);
+                this.mesh.material = mat;
+                // floating animation
+                this.floatOffset = 0;
+            }
+            update(delta){
+                if(this.mesh){
+                    this.floatOffset += delta*3;
+                    this.mesh.position.y = 0.4 + Math.sin(this.floatOffset)*0.15;
+                }
+            }
+            dispose(){
+                if(this.mesh) this.mesh.dispose();
+            }
+        }
+        
+        // Game state
+        let players = [];
+        let activeItems = [];
+        let scores = [0,0];
+        let playerElements = ["fire", "water"]; // round1: fire vs water
+        let opponentElements = ["water", "fire"];
+        let playerBoxItems = [null, null]; // stores opponent category collected
+        let roundActive = true;
+        let roundTime = 120; // seconds
+        let roundNumber = 1;
+        let totalRounds = 3;
+        let gameLoopRunning = true;
+        let itemSpawnTimer = 0;
+        let nextSpawnPhase = 0; // 0-> spawn first, 2.5-> spawn second, 5-> despawn1+spawn3, 7.5-> despawn2+spawn4
+        let spawnSchedule = [];
+        let lastTimestamp = 0;
+        let roundInterval = null;
+        
+        // UI elements
+        const scoreP1El = document.getElementById("scoreP1");
+        const scoreP2El = document.getElementById("scoreP2");
+        const p1ElementDiv = document.getElementById("p1Element");
+        const p2ElementDiv = document.getElementById("p2Element");
+        const p1BoxItemSpan = document.getElementById("p1BoxItem");
+        const p2BoxItemSpan = document.getElementById("p2BoxItem");
+        const roundInfoDiv = document.getElementById("roundInfo");
+        
+        // Helper update UI
+        function updateUI(){
+            scoreP1El.innerText = scores[0];
+            scoreP2El.innerText = scores[1];
+            p1ElementDiv.innerText = playerElements[0].toUpperCase();
+            p2ElementDiv.innerText = playerElements[1].toUpperCase();
+            p1BoxItemSpan.innerText = playerBoxItems[0] ? playerBoxItems[0].toUpperCase() : "🕳️";
+            p2BoxItemSpan.innerText = playerBoxItems[1] ? playerBoxItems[1].toUpperCase() : "🕳️";
+            const p1BoxDiv = document.getElementById("p1BoxSlot");
+            const p2BoxDiv = document.getElementById("p2BoxSlot");
+            if(!playerBoxItems[0]) p1BoxDiv.classList.add("empty-box"); else p1BoxDiv.classList.remove("empty-box");
+            if(!playerBoxItems[1]) p2BoxDiv.classList.add("empty-box"); else p2BoxDiv.classList.remove("empty-box");
+        }
+        
+        // Apply collection effect
+        function collectItem(playerIdx, item){
+            const playerElem = playerElements[playerIdx];
+            const opponentElem = opponentElements[playerIdx];
+            const itemCat = item.category;
+            const sub = item.subType;
+            
+            // if own category
+            if(itemCat === playerElem){
+                // +1 point + perk
+                scores[playerIdx] += 1;
+                // apply perk based on subtype
+                if(sub === "speed"){
+                    players[playerIdx].applyPerk(Math.random() > 0.5 ? "speedUp" : "speedDown", 4);
+                } else if(sub === "control"){
+                    players[playerIdx].applyPerk(Math.random() > 0.5 ? "moreControl" : "looseControl", 4);
+                } else if(sub === "extra"){
+                    // extra item pop up OR pop out
+                    if(Math.random() > 0.5){
+                        spawnRandomItemImmediately();
+                    } else {
+                        if(activeItems.length > 0){
+                            let randIdx = Math.floor(Math.random() * activeItems.length);
+                            activeItems[randIdx].dispose();
+                            activeItems.splice(randIdx,1);
+                        }
+                    }
+                }
                 updateUI();
+                return;
+            }
+            // if opponent's category
+            if(itemCat === opponentElem){
+                // store in box (replace previous)
+                playerBoxItems[playerIdx] = itemCat;
+                updateUI();
+                return;
+            }
+            // other category (neutral or different) -> lose 1 point
+            scores[playerIdx] -= 1;
+            if(scores[playerIdx] < 0) scores[playerIdx] = 0;
+            updateUI();
+        }
+        
+        // Use box: opponent suffers negative point
+        function useBox(playerIdx){
+            if(!playerBoxItems[playerIdx]) return;
+            const opponent = playerIdx === 0 ? 1 : 0;
+            scores[opponent] = Math.max(0, scores[opponent] - 1);
+            playerBoxItems[playerIdx] = null;
+            updateUI();
+            // visual feedback
+            const msg = `⚡ BOX CURSE! P${opponent+1} -1 point`;
+            const tmpDiv = document.createElement("div");
+            tmpDiv.innerText = msg;
+            tmpDiv.style.position="absolute"; tmpDiv.style.bottom="50%"; tmpDiv.style.left="30%"; tmpDiv.style.background="red"; tmpDiv.style.padding="5px"; tmpDiv.style.zIndex=200;
+            document.body.appendChild(tmpDiv);
+            setTimeout(()=>tmpDiv.remove(), 1000);
+        }
+        
+        // Spawn random item with random category and subtype
+        function spawnRandomItemImmediately(){
+            const categories = ["fire","water","earth","wind"];
+            const subtypes = ["speed","control","extra"];
+            const randCat = categories[Math.floor(Math.random()*categories.length)];
+            const randSub = subtypes[Math.floor(Math.random()*subtypes.length)];
+            const randX = (Math.random() - 0.5) * 18; // -9 to 9
+            const randZ = (Math.random() - 0.5) * 10;
+            const pos = new BABYLON.Vector3(randX, 0.3, randZ);
+            const newItem = new Collectible(pos, randCat, randSub, 5.0, scene);
+            activeItems.push(newItem);
+            setTimeout(() => {
+                const idx = activeItems.findIndex(i => i === newItem);
+                if(idx !== -1){
+                    activeItems[idx].dispose();
+                    activeItems.splice(idx,1);
+                }
+            }, 5000);
+        }
+        
+        // Schedule items based on 2.5 sec intervals (infinite pattern)
+        let itemInterval = null;
+        function startItemScheduler(){
+            if(itemInterval) clearInterval(itemInterval);
+            let phase = 0;
+            const spawnAction = () => {
+                if(!roundActive) return;
+                // spawn a new item at random track position
+                const randX = (Math.random() - 0.5) * 18;
+                const randZ = (Math.random() - 0.5) * 10;
+                const categories = ["fire","water","earth","wind"];
+                const subtypes = ["speed","control","extra"];
+                const randCat = categories[Math.floor(Math.random()*categories.length)];
+                const randSub = subtypes[Math.floor(Math.random()*subtypes.length)];
+                const newItem = new Collectible(new BABYLON.Vector3(randX, 0.3, randZ), randCat, randSub, 5.0, scene);
+                activeItems.push(newItem);
+                // schedule removal in 5 sec
+                setTimeout(() => {
+                    const idx = activeItems.findIndex(i => i === newItem);
+                    if(idx !== -1){
+                        activeItems[idx].dispose();
+                        activeItems.splice(idx,1);
+                    }
+                }, 5000);
+            };
+            // pattern: 0s spawn1, 2.5s spawn2, 5s spawn3 & remove first? Actually we already removal after 5s, so pattern continues
+            itemInterval = setInterval(() => {
+                if(roundActive) spawnAction();
+            }, 2500);
+            // initial spawn
+            setTimeout(()=>{ if(roundActive) spawnAction(); }, 100);
+        }
+        
+        function stopItemScheduler(){
+            if(itemInterval) clearInterval(itemInterval);
+            itemInterval = null;
+        }
+        
+        // clear all items
+        function clearAllItems(){
+            for(let it of activeItems) it.dispose();
+            activeItems = [];
+        }
+        
+        // Round end logic
+        function endRound(){
+            roundActive = false;
+            stopItemScheduler();
+            clearAllItems();
+            if(roundNumber < totalRounds){
+                roundNumber++;
+                // reassign elements: each round rotate (fire/water, earth/wind, water/fire)
+                if(roundNumber === 2){
+                    playerElements = ["earth", "wind"];
+                    opponentElements = ["wind", "earth"];
+                } else if(roundNumber === 3){
+                    playerElements = ["water", "fire"];
+                    opponentElements = ["fire", "water"];
+                }
+                // reset box items
+                playerBoxItems = [null, null];
+                // reset perks
+                players[0].resetPerk();
+                players[1].resetPerk();
+                // reset positions
+                players[0].mesh.position.set(-3, 0.2, 2);
+                players[1].mesh.position.set(3, 0.2, -2);
+                players[0].angle = 0;
+                players[1].angle = Math.PI;
+                roundTime = 120;
+                roundActive = true;
+                updateUI();
+                roundInfoDiv.innerText = `ROUND ${roundNumber} / ${totalRounds} | ${playerElements[0].toUpperCase()} VS ${playerElements[1].toUpperCase()}`;
+                setTimeout(()=>{ roundInfoDiv.style.opacity = "1"; setTimeout(()=>{roundInfoDiv.style.opacity = "0.8";},2000);},200);
+                startItemScheduler();
+                startRoundTimer();
+            } else {
+                // game over
+                roundInfoDiv.innerText = `GAME OVER! WINNER: ${scores[0] > scores[1] ? "PLAYER 1" : (scores[1] > scores[0] ? "PLAYER 2" : "TIE")}`;
+                roundInfoDiv.style.fontSize = "1.8rem";
+                roundInfoDiv.style.background = "gold";
+                roundInfoDiv.style.color = "black";
+                gameLoopRunning = false;
             }
         }
-    }
-
-    // Updates HTML UI texts and colors
-    function updateUI() {
-        // P1 Updates
-        document.getElementById("p1-score").innerText = `Score: ${p1.score}`;
-        let p1El = document.getElementById("p1-element");
-        p1El.innerText = ELEMENT_DATA[p1.element].name;
-        p1El.style.backgroundColor = ELEMENT_DATA[p1.element].hex;
         
-        let p1Btn = document.getElementById("p1-inv");
-        if (p1.inv !== null) {
-            p1Btn.innerText = "Use Debuff!";
-            p1Btn.classList.add("active");
-        } else {
-            p1Btn.innerText = "Empty Box";
-            p1Btn.classList.remove("active");
+        let timerInterval = null;
+        function startRoundTimer(){
+            if(timerInterval) clearInterval(timerInterval);
+            timerInterval = setInterval(()=>{
+                if(roundActive && roundTime > 0){
+                    roundTime--;
+                    const minutes = Math.floor(roundTime/60);
+                    const secs = roundTime%60;
+                    document.querySelector(".round-info").innerHTML = `ROUND ${roundNumber}/3 | ${minutes}:${secs<10?'0'+secs:secs}`;
+                    if(roundTime <= 0){
+                        clearInterval(timerInterval);
+                        endRound();
+                    }
+                } else if(!roundActive){
+                    clearInterval(timerInterval);
+                }
+            }, 1000);
         }
-
-        // P2 Updates
-        document.getElementById("p2-score").innerText = `Score: ${p2.score}`;
-        let p2El = document.getElementById("p2-element");
-        p2El.innerText = ELEMENT_DATA[p2.element].name;
-        p2El.style.backgroundColor = ELEMENT_DATA[p2.element].hex;
-
-        let p2Btn = document.getElementById("p2-inv");
-        if (p2.inv !== null) {
-            p2Btn.innerText = "Use Debuff!";
-            p2Btn.classList.add("active");
-        } else {
-            p2Btn.innerText = "Empty Box";
-            p2Btn.classList.remove("active");
+        
+        // Setup input handling (touch & mouse)
+        function initControls(){
+            const p1Left = document.querySelector("#controlsP1 .ctrl-btn[data-dir='left']");
+            const p1Right = document.querySelector("#controlsP1 .ctrl-btn[data-dir='right']");
+            const p2Left = document.querySelector("#controlsP2 .ctrl-btn[data-dir='left']");
+            const p2Right = document.querySelector("#controlsP2 .ctrl-btn[data-dir='right']");
+            function setSteer(player, val){
+                players[player].steerInput = val;
+            }
+            p1Left.addEventListener("mousedown", ()=>setSteer(0, -1));
+            p1Left.addEventListener("mouseup", ()=>setSteer(0,0));
+            p1Left.addEventListener("mouseleave", ()=>setSteer(0,0));
+            p1Left.addEventListener("touchstart", (e)=>{e.preventDefault(); setSteer(0,-1);});
+            p1Left.addEventListener("touchend", (e)=>{e.preventDefault(); setSteer(0,0);});
+            p1Right.addEventListener("mousedown", ()=>setSteer(0, 1));
+            p1Right.addEventListener("mouseup", ()=>setSteer(0,0));
+            p1Right.addEventListener("mouseleave", ()=>setSteer(0,0));
+            p1Right.addEventListener("touchstart", (e)=>{e.preventDefault(); setSteer(0,1);});
+            p1Right.addEventListener("touchend", (e)=>{e.preventDefault(); setSteer(0,0);});
+            
+            p2Left.addEventListener("mousedown", ()=>setSteer(1, -1));
+            p2Left.addEventListener("mouseup", ()=>setSteer(1,0));
+            p2Left.addEventListener("mouseleave", ()=>setSteer(1,0));
+            p2Left.addEventListener("touchstart", (e)=>{e.preventDefault(); setSteer(1,-1);});
+            p2Left.addEventListener("touchend", (e)=>{e.preventDefault(); setSteer(1,0);});
+            p2Right.addEventListener("mousedown", ()=>setSteer(1, 1));
+            p2Right.addEventListener("mouseup", ()=>setSteer(1,0));
+            p2Right.addEventListener("mouseleave", ()=>setSteer(1,0));
+            p2Right.addEventListener("touchstart", (e)=>{e.preventDefault(); setSteer(1,1);});
+            p2Right.addEventListener("touchend", (e)=>{e.preventDefault(); setSteer(1,0);});
+            
+            // Box click
+            document.getElementById("p1BoxSlot").addEventListener("click", ()=>useBox(0));
+            document.getElementById("p2BoxSlot").addEventListener("click", ()=>useBox(1));
         }
-    }
-
-    // Initialize UI on start
-    updateUI();
-
-    // Handle Window Resize
-    window.addEventListener("resize", function () {
-        engine.resize();
-    });
-
-    // Start rendering
-    engine.runRenderLoop(function () {
-        scene.render();
-    });
-
-</script>
+        
+        // collision detection
+        function checkCollisions(){
+            for(let i=0; i<players.length; i++){
+                const carPos = players[i].mesh.position;
+                for(let j=0; j<activeItems.length; j++){
+                    const item = activeItems[j];
+                    const diff = carPos.subtract(item.mesh.position);
+                    const dist = Math.hypot(diff.x, diff.z);
+                    if(dist < 0.85){
+                        collectItem(i, item);
+                        item.dispose();
+                        activeItems.splice(j,1);
+                        break;
+                    }
+                }
+            }
+        }
+        
+        // Create players
+        function createPlayers(){
+            const p1 = new DriftCar("p1", new BABYLON.Color3(0.9,0.2,0.2), -3, 2, scene);
+            const p2 = new DriftCar("p2", new BABYLON.Color3(0.2,0.5,0.9), 3, -2, scene);
+            p2.angle = Math.PI;
+            players = [p1, p2];
+        }
+        
+        // start fresh game
+        function initGame(){
+            createPlayers();
+            scores = [0,0];
+            playerBoxItems = [null, null];
+            roundNumber = 1;
+            playerElements = ["fire", "water"];
+            opponentElements = ["water", "fire"];
+            roundActive = true;
+            roundTime = 120;
+            updateUI();
+            clearAllItems();
+            stopItemScheduler();
+            if(timerInterval) clearInterval(timerInterval);
+            startItemScheduler();
+            startRoundTimer();
+            roundInfoDiv.innerText = `ROUND 1 / 3 | FIRE vs WATER`;
+            setTimeout(()=>{roundInfoDiv.style.opacity = "0.9";},100);
+            gameLoopRunning = true;
+        }
+        
+        initGame();
+        initControls();
+        
+        // Animation loop
+        let lastFrame = performance.now();
+        scene.registerBeforeRender(()=>{
+            if(!gameLoopRunning) return;
+            const now = performance.now();
+            let delta = Math.min(0.033, (now - lastFrame)/1000);
+            if(delta<=0) {lastFrame=now; return;}
+            lastFrame = now;
+            // update cars with drift
+            players[0].update(delta, true);
+            players[1].update(delta, true);
+            for(let item of activeItems) item.update(delta);
+            checkCollisions();
+        });
+        
+        engine.runRenderLoop(()=>{
+            scene.render();
+        });
+        window.addEventListener("resize", ()=>engine.resize());
+        
+        // ensure that round timer display updates quickly
+        setInterval(()=>{
+            if(roundActive){
+                const minutes = Math.floor(roundTime/60);
+                const secs = roundTime%60;
+                document.querySelector(".round-info").innerHTML = `ROUND ${roundNumber}/3 | ${minutes}:${secs<10?'0'+secs:secs}`;
+            }
+        }, 200);
+    </script>
 </body>
-              </html>
+</html>
