@@ -1,0 +1,438 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <!-- Prevents zoom and scrolling on mobile devices -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Babylon.js Drift Arena - Shared Screen</title>
+    
+    <!-- Babylon.js core and Physics engines via CDN -->
+    <script src="https://cdn.babylonjs.com/babylon.js"></script>
+    <script src="https://cdn.babylonjs.com/cannon.js"></script>
+
+    <style>
+        body, html {
+            margin: 0; padding: 0; width: 100%; height: 100%;
+            overflow: hidden; background-color: #111; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            touch-action: none; user-select: none; -webkit-user-select: none;
+        }
+        #renderCanvas {
+            width: 100%; height: 100%; display: block;
+        }
+        /* UI Overlays */
+        .ui-container {
+            position: absolute; width: 100%; height: 100%; top: 0; left: 0; pointer-events: none;
+        }
+        .player-ui {
+            position: absolute; width: 100%; height: 150px; display: flex; 
+            justify-content: space-between; align-items: center; padding: 10px 20px; box-sizing: border-box;
+            background: linear-gradient(rgba(0,0,0,0.8), transparent);
+        }
+        #p2-ui {
+            top: 0; transform: rotate(180deg); /* Faces the player at the top of the phone */
+        }
+        #p1-ui {
+            bottom: 0; background: linear-gradient(transparent, rgba(0,0,0,0.8));
+        }
+        /* Buttons */
+        .ctrl-btn {
+            pointer-events: auto; width: 70px; height: 70px; background: rgba(255, 255, 255, 0.2);
+            border: 2px solid white; border-radius: 50%; display: flex; justify-content: center; align-items: center;
+            font-size: 24px; font-weight: bold; color: white; cursor: pointer; backdrop-filter: blur(4px);
+        }
+        .ctrl-btn:active { background: rgba(255, 255, 255, 0.5); }
+        
+        .center-info {
+            display: flex; flex-direction: column; align-items: center; color: white; text-align: center;
+        }
+        .score-text { font-size: 18px; font-weight: bold; margin-bottom: 5px;}
+        .element-text { font-size: 14px; padding: 3px 8px; border-radius: 12px; font-weight: bold; }
+        
+        .inv-btn {
+            pointer-events: auto; margin-top: 5px; padding: 8px 15px; border: 2px solid #fff;
+            background: #333; color: #aaa; border-radius: 8px; font-weight: bold; cursor: pointer;
+        }
+        .inv-btn.active {
+            background: #e74c3c; color: white; box-shadow: 0 0 10px #e74c3c;
+        }
+
+        /* Match Info Center */
+        #match-info {
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            color: rgba(255,255,255,0.5); font-size: 24px; font-weight: bold; text-align: center; pointer-events: none;
+        }
+    </style>
+</head>
+<body oncontextmenu="return false;">
+
+    <canvas id="renderCanvas"></canvas>
+
+    <div class="ui-container">
+        <!-- Player 2 UI (Top, inverted for person facing home button) -->
+        <div id="p2-ui" class="player-ui">
+            <div class="ctrl-btn" onpointerdown="setInput(p2, -1)" onpointerup="setInput(p2, 0)" onpointerout="setInput(p2, 0)">&lt;</div>
+            <div class="center-info">
+                <div class="score-text" id="p2-score">Score: 0</div>
+                <div class="element-text" id="p2-element">Water</div>
+                <div class="inv-btn" id="p2-inv" onclick="useInventory(p2, p1)">Empty Box</div>
+            </div>
+            <div class="ctrl-btn" onpointerdown="setInput(p2, 1)" onpointerup="setInput(p2, 0)" onpointerout="setInput(p2, 0)">&gt;</div>
+        </div>
+
+        <!-- Player 1 UI (Bottom) -->
+        <div id="p1-ui" class="player-ui">
+            <div class="ctrl-btn" onpointerdown="setInput(p1, -1)" onpointerup="setInput(p1, 0)" onpointerout="setInput(p1, 0)">&lt;</div>
+            <div class="center-info">
+                <div class="score-text" id="p1-score">Score: 0</div>
+                <div class="element-text" id="p1-element">Fire</div>
+                <div class="inv-btn" id="p1-inv" onclick="useInventory(p1, p2)">Empty Box</div>
+            </div>
+            <div class="ctrl-btn" onpointerdown="setInput(p1, 1)" onpointerup="setInput(p1, 0)" onpointerout="setInput(p1, 0)">&gt;</div>
+        </div>
+
+        <!-- Match Timer / Round -->
+        <div id="match-info">
+            <div id="round-display">Round 1 / 4</div>
+            <div id="time-display">2:00</div>
+        </div>
+    </div>
+
+<script>
+    const canvas = document.getElementById("renderCanvas");
+    const engine = new BABYLON.Engine(canvas, true);
+
+    // Elements Definition
+    const ELEMENTS = { FIRE: 0, WATER: 1, EARTH: 2, WIND: 3 };
+    const ELEMENT_DATA = [
+        { name: "Fire", color: new BABYLON.Color3(1, 0.2, 0.2), hex: "#ff3333" },
+        { name: "Water", color: new BABYLON.Color3(0.2, 0.5, 1), hex: "#3388ff" },
+        { name: "Earth", color: new BABYLON.Color3(0.2, 0.8, 0.2), hex: "#33cc33" },
+        { name: "Wind", color: new BABYLON.Color3(1, 0.9, 0.2), hex: "#ffeb3b" }
+    ];
+
+    // Player State Objects
+    let p1 = { id: 1, mesh: null, element: ELEMENTS.FIRE, score: 0, input: 0, inv: null, speedMult: 1, controlMult: 1, timer: 0 };
+    let p2 = { id: 2, mesh: null, element: ELEMENTS.WATER, score: 0, input: 0, inv: null, speedMult: 1, controlMult: 1, timer: 0 };
+
+    // Game variables
+    let activeItems = [];
+    let itemSpawnTimer = 0;
+    let roundTimer = 120; // 2 minutes
+    let currentRound = 1;
+    let boundX = 20;
+    let boundZ = 35;
+    
+    // Physics / Car handling variables
+    const BASE_SPEED = 15;
+    const TURN_SPEED = 3.5;
+    const DRIFT_FACTOR = 0.04; // Lower = more slippery/drifty
+
+    function setInput(player, val) { player.input = val; }
+
+    const createScene = function () {
+        const scene = new BABYLON.Scene(engine);
+        scene.clearColor = new BABYLON.Color4(0.05, 0.05, 0.05, 1);
+
+        // Enable Cannon.js Physics
+        scene.enablePhysics(new BABYLON.Vector3(0, 0, 0), new BABYLON.CannonJSPlugin());
+
+        // Top-Down Orthographic Camera Setup
+        const camera = new BABYLON.FreeCamera("camera", new BABYLON.Vector3(0, 50, 0), scene);
+        camera.setTarget(BABYLON.Vector3.Zero());
+        camera.mode = BABYLON.Camera.ORTHOGRAPHIC_CAMERA;
+        
+        // Lights
+        new BABYLON.HemisphericLight("light", new BABYLON.Vector3(0, 1, 0), scene);
+        const dirLight = new BABYLON.DirectionalLight("dirLight", new BABYLON.Vector3(-1, -2, -1), scene);
+        dirLight.intensity = 0.7;
+
+        // Ground (Dark grid)
+        const ground = BABYLON.MeshBuilder.CreateGround("ground", {width: 100, height: 100}, scene);
+        const gridMat = new BABYLON.StandardMaterial("gridMat", scene);
+        gridMat.diffuseColor = new BABYLON.Color3(0.1, 0.1, 0.1);
+        ground.material = gridMat;
+        ground.physicsImpostor = new BABYLON.PhysicsImpostor(ground, BABYLON.PhysicsImpostor.BoxImpostor, { mass: 0, friction: 0 }, scene);
+
+        // Helper to create cars
+        function createCar(playerObj, startZ, colorHex) {
+            const car = BABYLON.MeshBuilder.CreateBox("car" + playerObj.id, {width: 2, height: 1, depth: 4}, scene);
+            car.position.y = 0.5;
+            car.position.z = startZ;
+            if (startZ > 0) car.rotation.y = Math.PI; // Face center
+
+            const mat = new BABYLON.StandardMaterial("carMat", scene);
+            mat.diffuseColor = BABYLON.Color3.FromHexString(colorHex);
+            car.material = mat;
+
+            // Physics Body setup
+            car.physicsImpostor = new BABYLON.PhysicsImpostor(car, BABYLON.PhysicsImpostor.BoxImpostor, { mass: 1, friction: 0, restitution: 0.5 }, scene);
+            
+            // Lock rotation on X and Z so it doesn't flip over
+            car.physicsImpostor.physicsBody.angularDamping = 1; 
+
+            playerObj.mesh = car;
+        }
+
+        createCar(p1, -20, "#ffffff");
+        createCar(p2, 20, "#aaaaaa");
+
+        // Game Loop
+        scene.onBeforeRenderObservable.add(() => {
+            const dt = engine.getDeltaTime() / 1000;
+            
+            updateCameraBounds(camera);
+            handlePhysicsAndMovement(p1, dt);
+            handlePhysicsAndMovement(p2, dt);
+            handleItemSpawns(dt, scene);
+            updateGameTimers(dt);
+        });
+
+        return scene;
+    };
+
+    const scene = createScene();
+
+    // Responsive Orthographic Camera
+    function updateCameraBounds(camera) {
+        let ratio = canvas.height / canvas.width;
+        boundX = 25; 
+        boundZ = boundX * ratio;
+        camera.orthoLeft = -boundX;
+        camera.orthoRight = boundX;
+        camera.orthoTop = boundZ;
+        camera.orthoBottom = -boundZ;
+    }
+
+    // Handles Physics, Drifting, and Screen Wrapping
+    function handlePhysicsAndMovement(player, dt) {
+        // Buff timers
+        if (player.timer > 0) {
+            player.timer -= dt;
+            if (player.timer <= 0) {
+                player.speedMult = 1;
+                player.controlMult = 1;
+            }
+        }
+
+        const mesh = player.mesh;
+        const imp = mesh.physicsImpostor;
+
+        // Steering (Left / Right)
+        mesh.rotation.y += player.input * TURN_SPEED * dt;
+
+        // Forward Direction Vector
+        let forward = new BABYLON.Vector3(Math.sin(mesh.rotation.y), 0, Math.cos(mesh.rotation.y));
+        
+        // Target Velocity based on facing direction
+        let targetVelocity = forward.scale(BASE_SPEED * player.speedMult);
+        
+        // Current Velocity
+        let currentVelocity = imp.getLinearVelocity();
+        
+        // Drifting formula: Lerp towards target velocity based on grip/control
+        let grip = DRIFT_FACTOR * player.controlMult;
+        let newVel = BABYLON.Vector3.Lerp(currentVelocity, targetVelocity, grip);
+        newVel.y = 0; // Stick to ground
+        
+        imp.setLinearVelocity(newVel);
+        imp.setAngularVelocity(BABYLON.Vector3.Zero()); // Prevent physics collisions from spinning the car out of control
+
+        // Infinite Wrap-Around Bounds
+        let pos = mesh.position;
+        let wrapped = false;
+        
+        if (pos.x > boundX) { pos.x = -boundX; wrapped = true; }
+        else if (pos.x < -boundX) { pos.x = boundX; wrapped = true; }
+        
+        if (pos.z > boundZ) { pos.z = -boundZ; wrapped = true; }
+        else if (pos.z < -boundZ) { pos.z = boundZ; wrapped = true; }
+
+        if (wrapped) {
+            imp.forceUpdate(); // Syncs Babylon position hack back to Cannon.js physics body
+        }
+    }
+
+    // Item System Logic
+    function handleItemSpawns(dt, scene) {
+        itemSpawnTimer -= dt;
+        
+        // Spawn every 2.5 seconds
+        if (itemSpawnTimer <= 0) {
+            spawnItem(scene);
+            itemSpawnTimer = 2.5; 
+        }
+
+        // Update active items
+        for (let i = activeItems.length - 1; i >= 0; i--) {
+            let item = activeItems[i];
+            item.age += dt;
+            
+            // Items live for exactly 5 seconds
+            if (item.age >= 5.0) {
+                item.mesh.dispose();
+                activeItems.splice(i, 1);
+                continue;
+            }
+
+            // Simple distance-based collision detection for items
+            checkItemCollision(p1, item, i, scene);
+            if (activeItems[i] === item) { // Check if P1 didn't already consume it
+                checkItemCollision(p2, item, i, scene);
+            }
+            
+            // Slight hover animation
+            item.mesh.position.y = 0.5 + Math.sin(Date.now() / 200) * 0.2;
+        }
+    }
+
+    function spawnItem(scene) {
+        // Random properties
+        const el = Math.floor(Math.random() * 4); // 0-3 Element
+        const perk = Math.floor(Math.random() * 3); // 0: Speed, 1: Control, 2: Extra
+
+        const itemMesh = BABYLON.MeshBuilder.CreateSphere("item", {diameter: 2}, scene);
+        // Random position within safe bounds
+        itemMesh.position.x = (Math.random() - 0.5) * (boundX * 1.5);
+        itemMesh.position.z = (Math.random() - 0.5) * (boundZ * 1.5);
+        itemMesh.position.y = 0.5;
+
+        const mat = new BABYLON.StandardMaterial("itemMat", scene);
+        mat.emissiveColor = ELEMENT_DATA[el].color;
+        itemMesh.material = mat;
+
+        activeItems.push({ mesh: itemMesh, age: 0, element: el, perk: perk });
+    }
+
+    function checkItemCollision(player, item, index, scene) {
+        let dist = BABYLON.Vector3.Distance(player.mesh.position, item.mesh.position);
+        if (dist < 2.5) {
+            let opp = player.id === 1 ? p2 : p1;
+
+            if (item.element === player.element) {
+                // 1. Collected OWN element -> Point + Perk
+                player.score++;
+                applyPerk(player, item.perk, false, scene);
+            } 
+            else if (item.element === opp.element) {
+                // 2. Collected OPPONENT element -> Store in Inventory
+                player.inv = item.perk;
+            } 
+            else {
+                // 3. Collected OTHER element -> Lose point
+                player.score = Math.max(0, player.score - 1);
+            }
+
+            // Cleanup item
+            item.mesh.dispose();
+            activeItems.splice(index, 1);
+            updateUI();
+        }
+    }
+
+    // Applies buffs/debuffs
+    function applyPerk(targetPlayer, perkType, isDebuff, scene) {
+        if (perkType === 0) { // Speed
+            targetPlayer.speedMult = isDebuff ? 0.4 : 1.6;
+            targetPlayer.timer = 4.0;
+        } else if (perkType === 1) { // Control
+            targetPlayer.controlMult = isDebuff ? 0.2 : 2.5; // 0.2 = extreme drift
+            targetPlayer.timer = 4.0;
+        } else if (perkType === 2) { // Extra / Random
+            if (isDebuff) {
+                // Random debuff effect: Clear their inventory and drop a point
+                targetPlayer.inv = null;
+                targetPlayer.score = Math.max(0, targetPlayer.score - 1);
+            } else {
+                // Extra item popup
+                spawnItem(scene);
+            }
+        }
+    }
+
+    // Triggered by HTML UI buttons
+    function useInventory(sender, target) {
+        if (sender.inv !== null) {
+            applyPerk(target, sender.inv, true, scene);
+            sender.inv = null;
+            updateUI();
+        }
+    }
+
+    // Game Timer and Round Logic
+    function updateGameTimers(dt) {
+        if (currentRound > 4) return; // Game over state
+
+        roundTimer -= dt;
+        
+        let mins = Math.floor(roundTimer / 60);
+        let secs = Math.floor(roundTimer % 60).toString().padStart(2, '0');
+        document.getElementById("time-display").innerText = `${mins}:${secs}`;
+
+        if (roundTimer <= 0) {
+            currentRound++;
+            if (currentRound > 4) {
+                document.getElementById("round-display").innerText = "GAME OVER";
+                document.getElementById("time-display").innerText = p1.score > p2.score ? "P1 Wins!" : (p2.score > p1.score ? "P2 Wins!" : "Tie!");
+            } else {
+                roundTimer = 120;
+                document.getElementById("round-display").innerText = `Round ${currentRound} / 4`;
+                
+                // Swap Elements logic
+                if (currentRound === 2) { p1.element = ELEMENTS.EARTH; p2.element = ELEMENTS.WIND; }
+                if (currentRound === 3) { p1.element = ELEMENTS.WATER; p2.element = ELEMENTS.FIRE; }
+                if (currentRound === 4) { p1.element = ELEMENTS.WIND; p2.element = ELEMENTS.EARTH; }
+                
+                updateUI();
+            }
+        }
+    }
+
+    // Updates HTML UI texts and colors
+    function updateUI() {
+        // P1 Updates
+        document.getElementById("p1-score").innerText = `Score: ${p1.score}`;
+        let p1El = document.getElementById("p1-element");
+        p1El.innerText = ELEMENT_DATA[p1.element].name;
+        p1El.style.backgroundColor = ELEMENT_DATA[p1.element].hex;
+        
+        let p1Btn = document.getElementById("p1-inv");
+        if (p1.inv !== null) {
+            p1Btn.innerText = "Use Debuff!";
+            p1Btn.classList.add("active");
+        } else {
+            p1Btn.innerText = "Empty Box";
+            p1Btn.classList.remove("active");
+        }
+
+        // P2 Updates
+        document.getElementById("p2-score").innerText = `Score: ${p2.score}`;
+        let p2El = document.getElementById("p2-element");
+        p2El.innerText = ELEMENT_DATA[p2.element].name;
+        p2El.style.backgroundColor = ELEMENT_DATA[p2.element].hex;
+
+        let p2Btn = document.getElementById("p2-inv");
+        if (p2.inv !== null) {
+            p2Btn.innerText = "Use Debuff!";
+            p2Btn.classList.add("active");
+        } else {
+            p2Btn.innerText = "Empty Box";
+            p2Btn.classList.remove("active");
+        }
+    }
+
+    // Initialize UI on start
+    updateUI();
+
+    // Handle Window Resize
+    window.addEventListener("resize", function () {
+        engine.resize();
+    });
+
+    // Start rendering
+    engine.runRenderLoop(function () {
+        scene.render();
+    });
+
+</script>
+</body>
+              </html>
